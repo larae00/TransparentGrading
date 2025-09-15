@@ -31,7 +31,11 @@ services:
       - "8025:8025"
 
   backend:
-    build: ./backend
+    ports:
+      - "8000:8000"
+    build:
+      context: ./backend
+      dockerfile: DOCKERFILE
     volumes:
       - ./backend:/var/www/html:delegated
       - ./backend/vendor:/var/www/html/vendor
@@ -40,15 +44,18 @@ services:
     environment:
       DATABASE_URL: mysql://app:secret@db:3306/app
       MAILER_DSN: smtp://mailhog:1025
-
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: DOCKERFILE
     ports:
       - "5173:5173"
     volumes:
       - ./frontend:/app:delegated
+      - /app/node_modules
     environment:
-      VITE_API_URL: "http://api.localhost"
+      VITE_API_URL: "http://localhost:8000"
+      CHOKIDAR_USEPOLLING: "true"
 
   traefik:
     image: traefik:v2.10
