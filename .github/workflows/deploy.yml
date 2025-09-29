@@ -1,40 +1,13 @@
-name: Symfony + Vue Deployment
+name: Frontend Deployment to Vercel
 
 on:
   push:
     branches: [ main ]
 
 jobs:
-  backend:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          extensions: mbstring, pdo_mysql, intl
-
-      - name: Install Composer dependencies
-        run: composer install --no-progress --no-interaction --prefer-dist
-
-      - name: Run PHPUnit Tests
-        run: php bin/phpunit
-
-      - name: Deploy Backend to Render
-        if: success()
-        env:
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-        run: |
-          curl -X POST "https://api.render.com/deploy/srv-${RENDER_SERVICE_ID}" \
-          -H "Authorization: Bearer ${RENDER_API_KEY}"
-
   frontend:
     runs-on: ubuntu-latest
-    needs: backend
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -44,7 +17,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
           cd frontend
           npm install
@@ -59,11 +32,12 @@ jobs:
           cd frontend
           npm run build
 
-      - name: Deploy Frontend to Netlify
-        uses: nwtgck/actions-netlify@v1.2
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v20
         with:
-          publish-dir: ./frontend/dist
-          production-deploy: true
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
         env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
