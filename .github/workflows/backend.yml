@@ -1,1 +1,72 @@
+name: Backend CI/CD
 
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.DB_ROOT_PASSWORD }}
+          MYSQL_DATABASE: ${{ secrets.DB_NAME }}
+          MYSQL_USER: ${{ secrets.DB_USER }}
+          MYSQL_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u${{ secrets.DB_USER }} -p${{ secrets.DB_PASSWORD }}"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: intl, pdo_mysql, zip
+          coverage: none
+
+      - name: Cache Composer
+        uses: actions/cache@v3
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install Dependencies (no-dev)
+        run: composer install --no-interaction --prefer-dist --no-progress --no-dev
+
+      - name: Run Symfony Checks
+        run: |
+          php bin/console lint:yaml config
+          php bin/console lint:twig templates
+
+      - name: Run PHPStan
+        run: vendor/bin/phpstan analyse --level=7 src
+
+      - name: Run PHPUnit
+        run: vendor/bin/phpunit --coverage-text
+
+      - name: Build Production Docker Image
+        run: docker build -t ghcr.io/${{ github.repository }}/backend:latest -f backend/Dockerfile .
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Image
+        run: docker push ghcr.io/${{ github.repository }}/backend:latest
