@@ -1,21 +1,40 @@
-FROM php:8.3-fpm
+FROM php:8.3-fpm-alpine AS base
 
-RUN apt-get update && apt-get install -y \
-    git unzip libicu-dev libzip-dev zip zlib1g-dev \
-    && docker-php-ext-install intl pdo pdo_mysql zip opcache
+RUN apk add --no-cache git unzip icu-dev libzip-dev zlib-dev bash nginx supervisor
+
+RUN docker-php-ext-install intl pdo pdo_mysql zip opcache
+
+# Opcache production settings
+RUN { \
+  echo "opcache.enable=1"; \
+  echo "opcache.enable_cli=1"; \
+  echo "opcache.memory_consumption=256"; \
+  echo "opcache.interned_strings_buffer=16"; \
+  echo "opcache.max_accelerated_files=20000"; \
+  echo "opcache.validate_timestamps=0"; \
+} > /usr/local/etc/php/conf.d/opcache.ini
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
 COPY composer.json composer.lock ./
-ENV COMPOSER_ALLOW_SUPERUSER=1
-RUN composer install --no-interaction --prefer-dist --no-scripts --no-progress
+ENV COMPOSER_ALLOW_SUPERUSER=1 APP_ENV=prod SYMFONY_ENV=prod
+RUN composer install --no-interaction --prefer-dist --no-scripts --no-progress --no-dev
 
 COPY . .
-RUN composer install --no-interaction --prefer-dist --no-progress
+RUN composer install --no-interaction --prefer-dist --no-progress --no-dev \
+  && php bin/console cache:clear --env=prod --no-warmup \
+  && php bin/console cache:warmup --env=prod
 
-RUN chown -R www-data:www-data /var/www/html
+RUN chown -R www-data:www-data /var/www/html/var /var/www/html/public
 
-EXPOSE 8000
-CMD ["php", "-S", "0.0.0.0:8000", "-t", "public"]
+# Nginx vhost and Supervisor
+RUN mkdir -p /run/nginx /var/log/supervisor
+
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker/supervisord.conf /etc/supervisord.conf
+
+EXPOSE 80
+
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]

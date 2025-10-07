@@ -1,0 +1,79 @@
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8
+    container_name: transparentgrading-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-app}
+      MYSQL_USER: ${MYSQL_USER:-app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-secret}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    container_name: transparentgrading-backend
+    build:
+      context: ./backend
+      dockerfile: DOCKERFILE
+    restart: always
+    environment:
+      APP_ENV: prod
+      DATABASE_URL: ${DATABASE_URL:-mysql://app:secret@db:3306/app?serverVersion=8.0&charset=utf8mb4}
+      MAILER_DSN: ${MAILER_DSN:-null://null}
+    depends_on:
+      - db
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`${BACKEND_HOST:-api.deinedomain.at}`)"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls.certresolver=myresolver"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"  # Symfony läuft typischerweise auf 8000
+
+  frontend:
+    container_name: transparentgrading-frontend
+    build:
+      context: ./frontend
+      dockerfile: DOCKERFILE
+      args:
+        - VITE_API_URL=${VITE_API_URL:-https://api.deinedomain.at}
+    restart: always
+    depends_on:
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`${FRONTEND_HOST:-deinedomain.at}`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=myresolver"
+      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+
+  traefik:
+    image: traefik:v2.10
+    container_name: transparentgrading-traefik
+    restart: always
+    command:
+      - --providers.docker=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --api.dashboard=true
+      - --certificatesresolvers.myresolver.acme.tlschallenge=true
+      - --certificatesresolvers.myresolver.acme.email=${ACME_EMAIL:-you@example.com}
+      - --certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+    labels:
+      - "traefik.enable=true"
+
+volumes:
+  db_data:
